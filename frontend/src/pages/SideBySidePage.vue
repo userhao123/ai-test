@@ -62,6 +62,10 @@
         >
           - 移除
         </a-button>
+        <div style="display: flex; align-items: center; gap: 6px; margin-left: 12px; flex-shrink: 0;">
+          <span style="font-size: 13px; color: #666;">盲测</span>
+          <a-switch v-model:checked="blindMode" size="small" />
+        </div>
       </div>
     </header>
 
@@ -126,12 +130,18 @@
                 <div class="col-header">
                   <div class="header-left">
                     <img
+                      v-if="!blindMode || msg.rating"
                       :src="getProviderIcon(resp.modelName)"
                       :alt="getModelName(resp.modelName)"
                       class="model-icon"
                         @error="(e) => (e.target as HTMLImageElement).src = getDefaultIconUrl()"
                     />
-                    <span class="model-tag">{{ getModelName(resp.modelName) }}</span>
+                    <span
+                      v-else
+                      class="model-icon"
+                      style="display: flex; align-items: center; justify-content: center; background: #1890ff; color: #fff; font-size: 12px; font-weight: bold;"
+                    >{{ String.fromCharCode(65 + respIndex) }}</span>
+                    <span class="model-tag">{{ getDisplayName(resp.modelName, respIndex, !!msg.rating) }}</span>
                   </div>
                   <div class="header-right">
                     <div class="metrics">
@@ -157,14 +167,14 @@
                       <button
                         class="action-btn"
                         title="复制响应"
-                        @click="copyResponse(resp.fullContent || '', resp.modelName)"
+                        @click="copyResponse(resp.fullContent || '', getDisplayName(resp.modelName, respIndex, !!msg.rating))"
                       >
                         <CopyOutlined />
                       </button>
                       <button
                         class="action-btn"
                         title="最大化"
-                        @click="expandResponse(resp.modelName, resp.fullContent || '')"
+                        @click="expandResponse(resp.modelName, resp.fullContent || '', !!msg.rating, respIndex)"
                       >
                         <ExpandOutlined />
                       </button>
@@ -286,7 +296,7 @@
                   :class="{ 'rating-selected': isModelSelected(msg, resp.modelName, respIdx) }"
                   @click="handleRating(idx, 'model_better', resp.modelName)"
                 >
-                  {{ getModelName(resp.modelName) }} 更好
+                  {{ getDisplayName(resp.modelName, respIdx, !!msg.rating) }} 更好
                 </button>
                 <button
                   class="rating-btn"
@@ -413,7 +423,7 @@
     <!-- 最大化对话框 -->
     <a-modal
       :open="!!expandedResponse"
-      :title="expandedResponse ? getModelName(expandedResponse.modelName) : ''"
+      :title="expandedResponse ? getDisplayName(expandedResponse.modelName, expandedResponse.index, expandedResponse.reveal) : ''"
       width="90%"
       :footer="null"
       @cancel="closeExpanded"
@@ -421,11 +431,12 @@
       <div v-if="expandedResponse" class="expanded-content">
         <div class="expanded-header">
           <img
+            v-if="!blindMode || expandedResponse.reveal"
             :src="getProviderIcon(expandedResponse.modelName)"
             :alt="getModelName(expandedResponse.modelName)"
             class="expanded-icon"
           />
-          <h3>{{ getModelName(expandedResponse.modelName) }}</h3>
+          <h3>{{ getDisplayName(expandedResponse.modelName, expandedResponse.index, expandedResponse.reveal) }}</h3>
         </div>
         <div class="expanded-body">
           <MarkdownRenderer :content="expandedResponse.content" />
@@ -511,7 +522,7 @@ const webSearchEnabled = ref(localStorage.getItem(WEB_SEARCH_STORAGE_KEY) === 't
 const messages = ref<Msg[]>([])
 const sse = ref<any>(null)
 const isNewConversation = ref(false) // 标记是否是新会话（刚生成conversationId）
-const expandedResponse = ref<{ modelName: string; content: string } | null>(null) // 最大化的响应
+const expandedResponse = ref<{ modelName: string; content: string; reveal: boolean; index: number } | null>(null) // 最大化的响应
 const expandedImageUrl = ref<string | null>(null) // 放大查看的图片URL
 const messagesWrapper = ref<HTMLElement | null>(null) // 消息列表容器引用
 
@@ -537,7 +548,7 @@ const isImageMode = computed(() => inputMode.value === 'image')
 const hasToolCallingModel = computed(() => {
   const validModels = selectedModels.value.filter(m => m) as string[]
   if (validModels.length === 0) return false
-  
+
   return validModels.some(modelId => {
     const option = modelOptions.value.find(opt => opt.value === modelId)
     return option?.supportsToolCalling === true
@@ -550,13 +561,13 @@ const toggleWebSearch = async () => {
     message.warning('当前选中的模型不支持联网搜索')
     return
   }
-  
+
   // 如果要开启联网搜索，先关闭图像生成模式
   if (!webSearchEnabled.value && isImageMode.value) {
     inputMode.value = 'text'
     await loadModels(undefined, false, false)
   }
-  
+
   webSearchEnabled.value = !webSearchEnabled.value
   localStorage.setItem(WEB_SEARCH_STORAGE_KEY, webSearchEnabled.value.toString())
   message.info(webSearchEnabled.value ? '已开启联网搜索' : '已关闭联网搜索')
@@ -577,21 +588,21 @@ const toggleImageMode = async () => {
   const wasImageMode = inputMode.value === 'image'
   inputMode.value = wasImageMode ? 'text' : 'image'
   console.log('切换图片模式:', inputMode.value, '之前是:', wasImageMode, '已有会话:', isExistingConversation.value)
-  
+
   // 保存当前模型数量（在所有情况下都保持不变）
   const originalModelCount = selectedModels.value.length
-  
+
   // 如果要开启图像生成模式，先关闭联网搜索
   if (inputMode.value === 'image' && webSearchEnabled.value) {
     webSearchEnabled.value = false
     localStorage.setItem(WEB_SEARCH_STORAGE_KEY, 'false')
   }
-  
+
   if (inputMode.value === 'image') {
     // 切换到图片模式
     const validModels = selectedModels.value.filter(m => m) as string[]
     const invalidModels: string[] = []
-    
+
     // 检查每个已选择的模型是否支持图片生成
     for (const modelId of validModels) {
       const option = modelOptions.value.find(opt => opt.value === modelId)
@@ -599,10 +610,10 @@ const toggleImageMode = async () => {
         invalidModels.push(modelId)
       }
     }
-    
+
     // 清除不支持图片生成的模型选择（但保持模型数量不变）
     if (invalidModels.length > 0) {
-      const newSelectedModels = selectedModels.value.map(model => 
+      const newSelectedModels = selectedModels.value.map(model =>
         invalidModels.includes(model as string) ? undefined : model
       )
       // 确保模型数量不变
@@ -615,13 +626,13 @@ const toggleImageMode = async () => {
       selectedModels.value = newSelectedModels
       message.info('已切换图像生成模式', 1.5)
     }
-    
+
     // 刷新模型列表（只显示支持图片生成的模型）
     console.log('🔄 切换到图片模式，刷新模型列表（筛选图片生成模型）')
     // 等待一个 tick 确保 inputMode 和 isImageMode 已更新
     await nextTick()
     await loadModels(undefined, false, true)
-    
+
     // 确保模型数量不变（防止 loadModels 中的自动选择逻辑修改）
     if (selectedModels.value.length !== originalModelCount) {
       console.log('🔒 恢复模型数量:', originalModelCount, '当前:', selectedModels.value.length)
@@ -633,7 +644,7 @@ const toggleImageMode = async () => {
       }
       console.log('✅ 恢复后模型数量:', selectedModels.value.length)
     }
-    
+
     // 如果第一个位置没有选择模型，自动选择第一个
     if (!selectedModels.value[0] && modelOptions.value.length >= 1) {
       const newSelectedModels = [...selectedModels.value]
@@ -641,22 +652,22 @@ const toggleImageMode = async () => {
       selectedModels.value = newSelectedModels
       console.log('✅ 切换到图片模式后，自动选择第一个模型:', selectedModels.value)
     }
-    
+
     // 等待下一个 tick 确保下拉框更新
     await nextTick()
   } else {
     // 取消图片模式，恢复为文本模式
     console.log('🔄 取消图片模式，刷新模型列表（显示所有模型）')
     console.log('🔍 当前 isImageMode:', isImageMode.value, 'inputMode:', inputMode.value)
-    
+
     // 等待一个 tick 确保 inputMode 和 isImageMode 已更新
     await nextTick()
     console.log('🔍 等待后 isImageMode:', isImageMode.value, 'inputMode:', inputMode.value)
-    
+
     // 刷新模型列表（显示所有模型，不筛选）
     // 显式传递 forceImageGenFilter: false 确保不筛选
     await loadModels(undefined, false, false)
-    
+
     // 确保模型数量不变
     if (selectedModels.value.length !== originalModelCount) {
       console.log('🔒 恢复模型数量:', originalModelCount, '当前:', selectedModels.value.length)
@@ -668,7 +679,7 @@ const toggleImageMode = async () => {
       }
       console.log('✅ 恢复后模型数量:', selectedModels.value.length)
     }
-    
+
     // 检查当前选中的模型是否是图片生成模型，如果是则清除并选择第一个
     const currentModel = selectedModels.value[0]
     if (currentModel) {
@@ -699,7 +710,7 @@ const toggleImageMode = async () => {
         console.log('✅ 取消图片模式后，自动选择第一个模型:', selectedModels.value)
       }
     }
-    
+
     // 等待下一个 tick 确保下拉框更新
     await nextTick()
   }
@@ -731,7 +742,7 @@ const uploadImages = async (files: File[]) => {
   try {
     imageUploading.value = true
     const { uploadImage } = await import('@/api/fileController')
-    
+
     // 先添加占位图（上传中状态）
     const placeholderItems: ImageItem[] = filesToUpload.map((file, index) => {
       // 使用唯一的占位符 URL（基于文件名和时间戳）
@@ -743,17 +754,17 @@ const uploadImages = async (files: File[]) => {
       }
     })
     selectedImageUrls.value.push(...placeholderItems)
-    
+
     // 逐个上传图片
     for (let i = 0; i < filesToUpload.length; i++) {
       const file = filesToUpload[i]
       const placeholderIndex = selectedImageUrls.value.length - filesToUpload.length + i
-      
+
       try {
         const formData = new FormData()
         formData.append('file', file)
         const res = await uploadImage(formData)
-        
+
         if (res?.data?.code === 0 && res.data.data?.url) {
           // 更新为完成状态
           selectedImageUrls.value[placeholderIndex] = {
@@ -771,11 +782,11 @@ const uploadImages = async (files: File[]) => {
         message.error(`图片 "${file.name}" 上传失败`)
       }
     }
-    
+
     const successCount = selectedImageUrls.value.filter(item => item.status === 'completed').length
     if (successCount > 0) {
       message.success(`成功上传 ${successCount} 张图片`, 1.5)
-      
+
       // 如果上传成功且有图片，且不是图片生成模式，自动过滤为多模态模型
       const hasCompletedImages = getCompletedImageUrls().length > 0
       if (hasCompletedImages && !isImageMode.value) {
@@ -793,14 +804,14 @@ const uploadImages = async (files: File[]) => {
               }
             }
           })
-          
+
           if (invalidModels.length > 0) {
             message.info('已切换为多模态模式，已清除不支持多模态的模型')
           }
-          
+
           // 刷新模型列表（只显示多模态模型）
           await loadModels(undefined, false, false, true)
-          
+
           // 如果第一个模型被清空，自动选择第一个多模态模型
           if (!selectedModels.value[0] && modelOptions.value.length > 0) {
             selectedModels.value[0] = modelOptions.value[0].value
@@ -821,7 +832,7 @@ const removeImage = (index: number) => {
   if (index >= 0 && index < selectedImageUrls.value.length) {
     selectedImageUrls.value.splice(index, 1)
     console.log('🗑️ 删除图片，剩余:', selectedImageUrls.value.length)
-    
+
     // 如果删除后没有图片了，且不是图片生成模式，刷新模型列表（显示所有模型）
     const hasCompletedImages = getCompletedImageUrls().length > 0
     if (!hasCompletedImages && !isImageMode.value) {
@@ -959,7 +970,7 @@ const getAvailableOptionsForIndex = (currentIndex: number) => {
     // 文本模式下，不进行额外过滤（后端已经处理）
     return true
   })
-  
+
   console.log(`📋 位置${currentIndex}过滤后可选:`, {
     总数: available.length,
     图片模式: isImageMode.value,
@@ -997,16 +1008,16 @@ const loadModels = async (searchText?: string, append: boolean = false, forceIma
     }
 
     // 如果显式指定了 forceImageGenFilter，使用该值；否则根据 isImageMode 判断
-    const shouldFilterImageGen = forceImageGenFilter !== undefined 
-        ? forceImageGenFilter 
+    const shouldFilterImageGen = forceImageGenFilter !== undefined
+        ? forceImageGenFilter
         : (isImageMode.value ? true : undefined)
-    
+
     // 如果显式指定了 forceMultimodalFilter，使用该值；否则根据是否有图片判断（且不是图片生成模式）
     const hasCompletedImages = getCompletedImageUrls().length > 0
     const shouldFilterMultimodal = forceMultimodalFilter !== undefined
         ? forceMultimodalFilter
         : (!isImageMode.value && hasCompletedImages ? true : undefined)
-    
+
     console.log('📡 加载模型列表:', {
       isImageMode: isImageMode.value,
       inputMode: inputMode.value,
@@ -1045,8 +1056,8 @@ const loadModels = async (searchText?: string, append: boolean = false, forceIma
         console.log('🔄 更新模型选项列表:', {
           模式: isImageMode.value ? '图片生成' : (shouldFilterMultimodal ? '多模态' : '文本'),
           数量: newOptions.length,
-          选项: newOptions.map(o => ({ 
-            label: o.label, 
+          选项: newOptions.map(o => ({
+            label: o.label,
             supportsImageGen: o.supportsImageGen,
             supportsMultimodal: o.supportsMultimodal
           }))
@@ -1068,8 +1079,8 @@ const loadModels = async (searchText?: string, append: boolean = false, forceIma
         }
         // 第二个模型槽位为空时，选择列表第二个（如果有），否则选择第一个
         if (newSelectedModels.length >= 2 && !newSelectedModels[1] && modelOptions.value.length >= 1) {
-          newSelectedModels[1] = modelOptions.value.length >= 2 
-            ? modelOptions.value[1].value 
+          newSelectedModels[1] = modelOptions.value.length >= 2
+            ? modelOptions.value[1].value
             : modelOptions.value[0].value
         }
         selectedModels.value = newSelectedModels
@@ -1218,11 +1229,11 @@ const sendMessage = async () => {
     try {
       // 用于存储第一个返回的 conversationId
       let savedConversationId: string | undefined = undefined
-      
+
       const generatePromises = validModels.map((model, modelIndex) => {
         return new Promise<void>((resolve) => {
           const isFirst = modelIndex === 0 && !currentConversationId
-          
+
           generateImageStream(
             {
               model,
@@ -1237,10 +1248,10 @@ const sendMessage = async () => {
             (chunk: API.ImageStreamChunkVO) => {
               const msg = messages.value[assistantMsgIndex]
               if (!msg || !msg.responses) return
-              
+
               const idx = msg.responses.findIndex((r: any) => r.modelName === model)
               if (idx < 0) return
-              
+
               if (chunk.type === 'thinking') {
                 msg.responses[idx] = {
                   ...msg.responses[idx],
@@ -1257,7 +1268,7 @@ const sendMessage = async () => {
                 }
                 messages.value = [...messages.value]
                 scrollToBottom()
-                
+
                 // 保存 conversationId
                 if (chunk.conversationId && !savedConversationId) {
                   savedConversationId = chunk.conversationId
@@ -1380,10 +1391,10 @@ const sendMessage = async () => {
     const url = `${API_BASE_URL}/conversation/side-by-side/stream`
     // 联网搜索：只有在有支持工具调用的模型时才启用
     const effectiveWebSearch = webSearchEnabled.value && hasToolCallingModel.value
-    console.log('📤 发送Side-by-Side请求:', { 
-      conversationId: currentConversationId, 
-      models: validModels, 
-      prompt: text, 
+    console.log('📤 发送Side-by-Side请求:', {
+      conversationId: currentConversationId,
+      models: validModels,
+      prompt: text,
       imageUrls: completedImageUrls,
       imageCount: completedImageUrls.length,
       webSearchEnabled: effectiveWebSearch
@@ -1462,7 +1473,7 @@ const sendMessage = async () => {
             msg.responses[idx] = { ...msg.responses[idx], ...chunk }
             // 强制触发响应式更新
             messages.value = [...messages.value]
-            
+
             console.log('✔ 更新成功:', chunk.modelName, 'at index', idx, '→ done:', msg.responses[idx].done, '内容长度:', msg.responses[idx].fullContent?.length, 'reasoning长度:', msg.responses[idx].reasoning?.length)
 
             // 滚动到底部
@@ -1584,18 +1595,29 @@ const getProviderIcon = (modelId: string | undefined) => {
 }
 
 // 复制响应内容
-const copyResponse = async (content: string, modelName: string) => {
+const copyResponse = async (content: string, displayName: string) => {
   try {
     await navigator.clipboard.writeText(content)
-    message.success(`已复制 ${getModelName(modelName)} 的响应`)
+    message.success(`已复制 ${displayName} 的响应`)
   } catch (err) {
     message.error('复制失败')
   }
 }
 
+const blindMode = ref(false)
+
+// 盲测模式下用代号代替真实模型名；reveal 为 true 时（用户已评分）显示真实模型名
+const getDisplayName = (modelName: string, index: number, reveal: boolean = false) => {
+  if (blindMode.value && !reveal) {
+    return `模型 ${String.fromCharCode(65 + index)}`  // 模型 A、模型 B、模型 C...
+  }
+  return getModelName(modelName)
+}
+
+
 // 最大化响应
-const expandResponse = (modelName: string, content: string) => {
-  expandedResponse.value = { modelName, content }
+const expandResponse = (modelName: string, content: string, reveal: boolean = false, index: number = 0) => {
+  expandedResponse.value = { modelName, content, reveal, index }
 }
 
 const expandImage = (imageUrl: string) => {
@@ -1829,11 +1851,11 @@ const loadConversationHistory = async () => {
         selectedModels.value = [...modelsList]
         console.log('✅ 设置模型列表:', selectedModels.value)
         console.log('✅ 模型数量:', selectedModels.value.length)
-        
+
         // 检查选中的模型是否是图片生成模型，如果是则自动选中图片模式
         // 先加载模型列表以获取模型信息（不筛选，获取所有模型信息）
         await loadModels(undefined, false, false)
-        
+
         // 检查第一个选中的模型是否是图片生成模型
         const firstModel = selectedModels.value[0]
         console.log('🔍 检查第一个模型:', firstModel, '模型选项数量:', modelOptions.value.length)
@@ -1899,7 +1921,7 @@ const loadConversationHistory = async () => {
 
       sortedIndexes.forEach(index => {
         const msgs = messagesByIndex.get(index)!
-        
+
         // 分离用户消息和 AI 消息
         const userMsgs = msgs.filter(m => m.role === 'user')
         const assistantMsgs = msgs.filter(m => m.role === 'assistant')
@@ -1922,7 +1944,7 @@ const loadConversationHistory = async () => {
             imageUrls
           })
         }
-        
+
         // 再添加 AI 响应
         if (assistantMsgs.length > 0) {
           // AI回复 - 多个模型的响应
@@ -2023,7 +2045,7 @@ const loadConversationHistory = async () => {
 
       // 加载评分信息
       await loadRatings(conversationId)
-      
+
       // 通过消息列表的最后一个消息判断是否为图片生成
       // 检查最后一个 assistant 消息是否有 images 字段
       let shouldEnableImageMode = false
@@ -2033,7 +2055,7 @@ const loadConversationHistory = async () => {
           const msg = groupedMessages[i]
           if (msg.type === 'assistant' && msg.responses && msg.responses.length > 0) {
             // 检查是否有任何响应包含生成的图片
-            const hasGeneratedImages = msg.responses.some((resp: any) => 
+            const hasGeneratedImages = msg.responses.some((resp: any) =>
               resp.generatedImages && resp.generatedImages.length > 0
             )
             if (hasGeneratedImages) {
@@ -2044,7 +2066,7 @@ const loadConversationHistory = async () => {
           }
         }
       }
-      
+
       // 如果应该启用图片模式，或者第一个模型是图片生成模型，则设置图片模式
       if (shouldEnableImageMode) {
         console.log('🖼️ 根据消息历史，自动选中图片模式')
