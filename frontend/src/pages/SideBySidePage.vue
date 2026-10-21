@@ -359,13 +359,23 @@
               </button>
             </div>
 
-            <button
-              class="send-icon"
-              :disabled="!canSend"
-              @click="sendMessage"
-            >
-              <SendOutlined />
-            </button>
+            <div class="right-actions">
+              <button
+                class="send-icon"
+                :disabled="!canSend"
+                @click="sendMessage"
+              >
+                <SendOutlined />
+              </button>
+              <button
+                v-if="isLoading"
+                class="stop-icon"
+                title="停止生成"
+                @click="stopGeneration"
+              >
+                <CloseOutlined />
+              </button>
+            </div>
           </div>
           <input
             ref="imageInputRef"
@@ -1614,6 +1624,24 @@ const getDisplayName = (modelName: string, index: number, reveal: boolean = fals
   return getModelName(modelName)
 }
 
+//停止生成
+const stopGeneration = () => {
+  if (sse.value) {
+    sse.value.close()
+    sse.value = null
+  }
+  isLoading.value = false
+
+  // 将所有未完成的模型标记为已完成
+  const lastMsg = messages.value[messages.value.length - 1]
+  if (lastMsg?.responses) {
+    lastMsg.responses.forEach((r: any) => {
+      if (!r.done) r.done = true
+    })
+    messages.value = [...messages.value]
+  }
+}
+
 
 // 最大化响应
 const expandResponse = (modelName: string, content: string, reveal: boolean = false, index: number = 0) => {
@@ -2748,6 +2776,29 @@ div.response-col {
   align-items: center;
   justify-content: center;
   transition: background 0.12s;
+}
+.stop-icon {
+  width: 34px;
+  height: 34px;
+  border: none;
+  background: #ff4d4f;
+  color: #fff;
+  border-radius: 7px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s;
+}
+
+.stop-icon:hover {
+  background: #d9363e;
+}
+
+.right-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .send-icon:hover:not(:disabled) {
