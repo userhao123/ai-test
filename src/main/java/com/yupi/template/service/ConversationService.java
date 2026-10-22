@@ -1,13 +1,7 @@
 package com.yupi.template.service;
 
 import com.mybatisflex.core.paginate.Page;
-import com.yupi.template.model.dto.conversation.BattleRequest;
-import com.yupi.template.model.dto.conversation.ChatRequest;
-import com.yupi.template.model.dto.conversation.CreateConversationRequest;
-import com.yupi.template.model.dto.conversation.PromptLabRequest;
-import com.yupi.template.model.dto.conversation.SideBySideRequest;
-import com.yupi.template.model.dto.conversation.CodeModeRequest;
-import com.yupi.template.model.dto.conversation.CodeModePromptLabRequest;
+import com.yupi.template.model.dto.conversation.*;
 import com.yupi.template.model.entity.Conversation;
 import com.yupi.template.model.entity.ConversationMessage;
 import com.yupi.template.model.vo.BattleModelMappingVO;
@@ -68,6 +62,13 @@ public interface ConversationService {
      * @return 流式响应
      */
     Flux<ServerSentEvent<StreamChunkVO>> promptLabStream(PromptLabRequest request, Long userId);
+
+    /**
+     * Prompt Lab 单模型多提示词对比,自动生成变体
+     *
+     * @param request 请求参数
+     */
+    List<String> generateVariants(GenerateVariantsRequest request);
 
     /**
      * Code Mode 代码模式 (流式响应)

@@ -1,4 +1,11 @@
 declare namespace API {
+  /** 通用响应结构 */
+  interface BaseResponse<T> {
+    code?: number
+    data?: T
+    message?: string
+  }
+
   type BaseResponseBoolean = {
     code?: number
     data?: boolean

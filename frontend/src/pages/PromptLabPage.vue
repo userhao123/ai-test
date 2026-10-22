@@ -257,6 +257,18 @@
             </a-button>
             <a-button
               size="small"
+              type="primary"
+              ghost
+              :loading="generatingVariants"
+              :disabled="isStreaming"
+              @click="handleGenerateVariants"
+              style="flex-shrink: 0;"
+            >
+              <template #icon><BulbOutlined /></template>
+              AI生成变体
+            </a-button>
+            <a-button
+              size="small"
               type="dashed"
               @click="addVariant"
               :disabled="variants.length >= 5"
@@ -612,10 +624,10 @@
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { message, notification } from 'ant-design-vue'
-import { SwapOutlined, ExperimentOutlined, TrophyOutlined, ExpandOutlined, ThunderboltOutlined, AppstoreOutlined, PlusOutlined, GlobalOutlined, FileImageOutlined, CloseOutlined, LinkOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons-vue'
+import { SwapOutlined, ExperimentOutlined, TrophyOutlined, ExpandOutlined, ThunderboltOutlined, AppstoreOutlined, PlusOutlined, GlobalOutlined, FileImageOutlined, CloseOutlined, LinkOutlined, DeleteOutlined, EditOutlined, BulbOutlined } from '@ant-design/icons-vue'
 import { uploadImage } from '@/api/fileController'
 import { listModels } from '@/api/modelController'
-import { getConversation, getConversationMessages, type StreamChunkVO, type ToolsUsedInfo } from '@/api/conversationController'
+import { getConversation, getConversationMessages, generateVariants, type StreamChunkVO, type ToolsUsedInfo } from '@/api/conversationController'
 import { createPostSSE } from '@/utils/sseClient'
 import { API_BASE_URL } from '@/config/env'
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
@@ -648,6 +660,7 @@ const originalVariants = ref<string[]>([])  // 会话创建时的原始变体
 const messagesWrapper = ref<HTMLElement | null>(null)  // 消息列表容器引用
 const expandedImageUrl = ref<string | null>(null)  // 放大查看的图片URL
 const optimizingIndex = ref<number | null>(null)  // 正在优化的变体索引
+const generatingVariants = ref(false)  // 正在生成AI变体
 const optimizationDrawerVisible = ref(false)  // 优化结果抽屉显示状态
 const optimizationResult = ref<PromptOptimizationVO | null>(null)  // 优化结果
 const currentOptimizingVariantIndex = ref<number | null>(null)  // 当前正在优化的变体索引
@@ -1512,6 +1525,61 @@ const applyOptimizedPrompt = () => {
     variants.value[currentOptimizingVariantIndex.value] = optimizationResult.value.optimizedPrompt
     message.success('已应用优化后的提示词')
     optimizationDrawerVisible.value = false
+  }
+}
+
+// AI 自动生成提示词变体
+const handleGenerateVariants = async () => {
+  if (isStreaming.value) {
+    message.warning('正在请求中，请稍后再试')
+    return
+  }
+
+  // 从当前选中的变体或第一个非空变体中获取基础提示词
+  const selectedPrompt = variants.value[selectedVariantIndex.value]?.trim()
+  const basePrompt = selectedPrompt || variants.value.find(v => v.trim())?.trim()
+
+  if (!basePrompt) {
+    message.warning('请先在一个变体中输入基础提示词')
+    return
+  }
+
+  // 找出所有空的变体槽位索引（用户未输入内容的）
+  const emptyIndices = variants.value
+    .map((v, i) => (v.trim() ? -1 : i))
+    .filter(i => i !== -1)
+
+  if (emptyIndices.length === 0) {
+    message.info('所有变体都已有内容，无需生成')
+    return
+  }
+
+  generatingVariants.value = true
+  try {
+    // 只请求空槽位数量的变体
+    const count = emptyIndices.length
+    const res: any = await generateVariants({ basePrompt, count })
+
+    if (res.data && res.data.code === 0 && Array.isArray(res.data.data) && res.data.data.length > 0) {
+      const generatedVariants = res.data.data
+      // 只将生成的变体填充到空槽位，保留用户已输入的内容
+      for (let i = 0; i < emptyIndices.length; i++) {
+        const targetIndex = emptyIndices[i]
+        variants.value[targetIndex] = i < generatedVariants.length ? generatedVariants[i] : ''
+      }
+      // 同步 variantImageUrls 数组长度
+      while (variantImageUrls.value.length < variants.value.length) {
+        variantImageUrls.value.push([])
+      }
+      message.success(`已生成 ${Math.min(generatedVariants.length, emptyIndices.length)} 个提示词变体`)
+    } else {
+      message.error(res.data?.message || '生成变体失败')
+    }
+  } catch (error) {
+    console.error('生成变体失败:', error)
+    message.error('生成变体失败: ' + (error instanceof Error ? error.message : '未知错误'))
+  } finally {
+    generatingVariants.value = false
   }
 }
 

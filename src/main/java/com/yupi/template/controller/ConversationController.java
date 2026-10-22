@@ -5,14 +5,7 @@ import com.yupi.template.common.BaseResponse;
 import com.yupi.template.common.ResultUtils;
 import com.yupi.template.exception.ErrorCode;
 import com.yupi.template.exception.ThrowUtils;
-import com.yupi.template.model.dto.conversation.BattleRequest;
-import com.yupi.template.model.dto.conversation.ChatRequest;
-import com.yupi.template.model.dto.conversation.CreateConversationRequest;
-import com.yupi.template.model.dto.conversation.PromptLabRequest;
-import com.yupi.template.model.dto.conversation.SideBySideRequest;
-import com.yupi.template.model.dto.conversation.CodeModeRequest;
-import com.yupi.template.model.dto.conversation.CodeModePromptLabRequest;
-import com.yupi.template.model.dto.conversation.DeleteConversationRequest;
+import com.yupi.template.model.dto.conversation.*;
 import com.yupi.template.model.entity.Conversation;
 import com.yupi.template.model.entity.ConversationMessage;
 import com.yupi.template.model.entity.User;
@@ -128,6 +121,15 @@ public class ConversationController {
                 loginUser.getId(), request.getModel(), request.getPromptVariants().size());
         return conversationService.promptLabStream(request, loginUser.getId());
     }
+
+    /**
+     * Prompt Lab 单模型多提示词对比,自动生成变体
+     */
+    @PostMapping("/generate-variants")
+    public BaseResponse<List<String>> generateVariants(@RequestBody GenerateVariantsRequest request) {
+        return ResultUtils.success(conversationService.generateVariants(request));
+    }
+
 
     /**
      * Code Mode 代码模式 (流式响应)

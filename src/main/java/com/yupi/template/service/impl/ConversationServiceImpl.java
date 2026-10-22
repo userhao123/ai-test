@@ -12,13 +12,7 @@ import com.yupi.template.guardrail.PromptGuardrail;
 import com.yupi.template.mapper.ConversationMapper;
 import com.yupi.template.mapper.ConversationMessageMapper;
 import com.yupi.template.mapper.ModelMapper;
-import com.yupi.template.model.dto.conversation.BattleRequest;
-import com.yupi.template.model.dto.conversation.ChatRequest;
-import com.yupi.template.model.dto.conversation.CreateConversationRequest;
-import com.yupi.template.model.dto.conversation.PromptLabRequest;
-import com.yupi.template.model.dto.conversation.SideBySideRequest;
-import com.yupi.template.model.dto.conversation.CodeModeRequest;
-import com.yupi.template.model.dto.conversation.CodeModePromptLabRequest;
+import com.yupi.template.model.dto.conversation.*;
 import com.yupi.template.model.entity.Conversation;
 import com.yupi.template.model.entity.ConversationMessage;
 import com.yupi.template.model.enums.ConversationTypeEnum;
@@ -48,12 +42,7 @@ import reactor.core.publisher.Mono;
 import java.math.BigDecimal;
 import java.net.URI;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -275,6 +264,28 @@ public class ConversationServiceImpl implements ConversationService {
 
         // 6. 合并所有变体的流
         return Flux.merge(variantFluxes);
+    }
+
+    @Override
+    public List<String> generateVariants(GenerateVariantsRequest request) {
+        String basePrompt = request.getBasePrompt();
+        int count = request.getCount();
+
+        String systemPrompt = "你是一个提示词优化专家。请根据用户给出的基础提示词，"
+                + "生成" + count + "个不同风格的变体，包括但不限于：直接提问、角色扮演、"
+                + "思维链(CoT)、Few-shot示例等。每个变体一行，不要编号。";
+
+        String result = chatClient.prompt()
+                .system(systemPrompt)
+                .user(basePrompt)
+                .call()
+                .content();
+
+        return Arrays.stream(result.split("\n"))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .limit(count)
+                .collect(Collectors.toList());
     }
 
     @Override
